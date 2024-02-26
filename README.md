@@ -28,17 +28,23 @@ If an error arises be sure that the folder where the script is trying to put the
 
 ## Automatic installation
 
-Use the install_F100_dependencies.py script to install all dependencies automatically.
+Use the install_F100_dependencies.py script to install all dependencies automatically. (TO BE DONE)
 
 
 ## Run the pipeline
 
 The pipeline consist of 6 workflows (or actions):
+  
   preprocessing
+  
   models
+  
   gene-analyses
+  
   one-vs-one
+  
   one-vs-many
+  
   all-vs-all
 
 
