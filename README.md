@@ -13,9 +13,11 @@ The F100_main.py compile the scripts in the original F100_Prok_Recombination rep
 2. EggNog and/or COGclassifier should be installed (at least one of them):
 
 Install COGclassifier
+
 ```pip install cogclassifier```
 
 Download EggNog databases
+
 ```download_eggnog_data.py```
 
 If an error arises be sure that the folder where the script is trying to put the databases exists
