@@ -34,7 +34,6 @@ Use the install_F100_dependencies.py script to install all dependencies automati
 ## Run the pipeline
 
 The pipeline consist of 6 workflows (or actions):
-  
               preprocessing
               
               models
