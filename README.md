@@ -35,17 +35,17 @@ Use the install_F100_dependencies.py script to install all dependencies automati
 
 The pipeline consist of 6 workflows (or actions):
   
-  preprocessing
-  
-  models
-  
-  gene-analyses
-  
-  one-vs-one
-  
-  one-vs-many
-  
-  all-vs-all
+              preprocessing
+              
+              models
+              
+              gene-analyses
+              
+              one-vs-one
+              
+              one-vs-many
+              
+              all-vs-all
 
 
 The preprocessing and gene-analyses are key since they produce outputs needed for the other workflows to run.
