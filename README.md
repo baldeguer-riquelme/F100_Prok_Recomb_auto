@@ -38,7 +38,9 @@ If an error arises be sure that the folder where the script is trying to put the
 git clone https://github.com/rotheconrad/F100_Prok_Recombination.git
 chmod +x F100_Prok_Recombination/00d_Workflow_Scripts/*.py
 env_bin_dir=${PATH%%:*}
-cp F100_Prok_Recombination/00d_Workflow_Scripts/* $env_bin_dir
+var=$(echo $env_bin_dir/python)
+for i in F100_Prok_Recombination/00d_Workflow_Scripts/*.py ; do sed -i "1s?.*?\#\!$var?" $i ; done
+cp F100_Prok_Recombination/00d_Workflow_Scripts/*.py $env_bin_dir
 ```
 
 ## Automatic installation
