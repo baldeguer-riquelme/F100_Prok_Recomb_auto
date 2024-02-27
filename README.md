@@ -22,9 +22,13 @@ Download EggNog databases
 
 If an error arises be sure that the folder where the script is trying to put the databases exists
 
-3. Download F100 pipeline scripts and add them to the PATH (critical, otherwise the script won't work)
+3. Download F100 pipeline scripts and add them to the bin folder for the conda environment (critical, otherwise the script won't work)
 
-```git clone https://github.com/rotheconrad/F100_Prok_Recombination/tree/main```
+```git clone https://github.com/rotheconrad/F100_Prok_Recombination.git
+   chmod +x F100_Prok_Recombination/00d_Workflow_Scripts/*.py
+   env_bin_dir=${PATH%%:*}
+   cp F100_Prok_Recombination/00d_Workflow_Scripts/* $env_bin_dir
+```
 
 ## Automatic installation
 
