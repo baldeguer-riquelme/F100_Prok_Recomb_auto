@@ -9,7 +9,11 @@ The F100_main.py compile the scripts in the original F100_Prok_Recombination rep
 1. Create conda environment and install dependencies
 
 ```
-conda create -n F100 -c bioconda -c conda-forge prodigal blast diamond=2.1.8 mmseqs2 eggnog-mapper cogclassifier python tqdm pandas matplotlib seaborn scipy pygam datashader lmfit
+conda create -n F100 -c bioconda -c conda-forge prodigal blast diamond mmseqs2 eggnog-mapper cogclassifier python tqdm pandas matplotlib seaborn scipy pygam datashader lmfit
+```
+
+```
+pip install tqdm pyrodigal cogclassifier
 ```
 
 2. EggNog and/or COGclassifier should be installed (at least one of them):
