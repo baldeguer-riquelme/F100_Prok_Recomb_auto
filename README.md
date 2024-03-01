@@ -1,7 +1,7 @@
 ### F100_Prok_Recomb_auto
-This repository contains the information to run the F100 pipeline developed by Roth Conrad (https://github.com/rotheconrad/F100_Prok_Recombination/) to estimate recombination between genomes calling a single script.
+This repository contains the information to run the F100 pipeline to estimate recombination between genomes developed by Roth Conrad (https://github.com/rotheconrad/F100_Prok_Recombination/) calling a single script.
 
-The F100_main.py compile the scripts in the original F100_Prok_Recombination repository to make it easier to use. It might be specially useful for those trying the pipeline for the first time or with little experience. However, the users looking for more flexibility might want to run the pipeline script by script, as originally developed.
+The F100_main.py compile the scripts in the original F100_Prok_Recombination repository into 6 different workflows to make it easier to use. It might be specially useful for those trying the pipeline for the first time or with little experience. However, the users looking for more flexibility might want to run the pipeline script by script, as originally developed.
 
 
 ## Installation
@@ -10,6 +10,10 @@ The F100_main.py compile the scripts in the original F100_Prok_Recombination rep
 
 ```
 conda create -n F100 -c bioconda -c conda-forge prodigal blast diamond mmseqs2 eggnog-mapper cogclassifier python tqdm pandas matplotlib seaborn scipy pygam datashader lmfit
+```
+
+```
+conda activate F100
 ```
 
 ```
@@ -32,7 +36,7 @@ download_eggnog_data.py
 
 If an error arises be sure that the folder where the script is trying to put the databases exists
 
-3. Download F100 pipeline scripts and add them to the bin folder for the conda environment (critical, otherwise the script won't work)
+3. Download tge original F100 repository and add the scripts to the bin folder in the conda environment (important step! Otherwise the F100_main.py script won't work)
 
 ```
 git clone https://github.com/rotheconrad/F100_Prok_Recombination.git
@@ -144,8 +148,8 @@ python F100_main.py preprocessing --in_dir genomes/ --out_dir Sruber -t 8
 
 # Run models.
 # The Pre-built_models can include the models Subsampled_Genome_Model_Data.tsv.zip and Simulated_Neutral_Model_Data.tsv.zip available in https://github.com/rotheconrad/F100_Prok_Recombination/ and/or those previously built by the user.
-# Instead of a folder you can simply specify the path the one specific model
-python F100_main.py models --in_dir Sruber --output_file_prefix results -m Pre-built_models/
+# Instead of a folder you can simply specify the path the one specific model with the -mfi argument 
+python F100_main.py models --in_dir Sruber --output_file_prefix results -mfo Pre-built_models/
 
 
 # Run gene-analysis
