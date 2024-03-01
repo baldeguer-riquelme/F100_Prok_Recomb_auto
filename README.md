@@ -137,7 +137,10 @@ The list of scripts and output files produced by each workflow are detailed belo
 
 ## Run the pipeline
 
-This is an example with the minimum requirements to run the different workflows. For all workflows but preprocessing the F100_main.py script will search automatically for the needed files to run the workflow if the --in_dir argument is provided and is valid. However, the user can also specify a path to each required files. 
+For all workflows but preprocessing, if the --in_dir argument is provided and is valid, the F100_main.py script will search automatically for the needed files to run the workflow. However, the user can also specify a path to each required file. 
+
+
+This is an example with the minimum requirements to run the different workflows. 
 
 ```
 conda activate F100
