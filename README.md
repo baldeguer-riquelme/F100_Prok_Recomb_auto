@@ -45,7 +45,7 @@ cp F100_Prok_Recombination/00d_Workflow_Scripts/*.py $env_bin_dir
 
 
 
-## Run the pipeline
+## Brief description
 
 The pipeline consist of 6 workflows (or actions):
 
@@ -65,6 +65,10 @@ The pipeline consist of 6 workflows (or actions):
 The preprocessing and gene-analyses are key since they produce outputs needed for the other workflows to run.
 
 
+
+
+## Run the pipeline
+
 This is an example with the minimum requirements to run the different workflows.
 
 ```
@@ -74,7 +78,9 @@ conda activate F100
 python F100_main.py preprocessing --in_dir genomes/ --out_dir Sruber -t 8
 
 
-# Run models. The Pre-built_models can include the models Subsampled_Genome_Model_Data.tsv.zip and Simulated_Neutral_Model_Data.tsv.zip available in https://github.com/rotheconrad/F100_Prok_Recombination/ and/or those previously built by the user. Instead of a folder you can simply specify the path the one specific model
+# Run models.
+# The Pre-built_models can include the models Subsampled_Genome_Model_Data.tsv.zip and Simulated_Neutral_Model_Data.tsv.zip available in https://github.com/rotheconrad/F100_Prok_Recombination/ and/or those previously built by the user.
+# Instead of a folder you can simply specify the path the one specific model
 python F100_main.py models --in_dir Sruber --output_file_prefix results -m Pre-built_models/
 
 
