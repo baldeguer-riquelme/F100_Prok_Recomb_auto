@@ -48,9 +48,11 @@ cp F100_Prok_Recombination/00d_Workflow_Scripts/*.py $env_bin_dir
 ```
 
 4. Clone the repository or download the F100_main.py script
+
 ```
-git clone
+git clone https://github.com/baldeguer-riquelme/F100_Prok_Recomb_auto/
 ```
+
 
 ## Brief description
 
