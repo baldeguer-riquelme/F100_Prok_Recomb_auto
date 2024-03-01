@@ -36,7 +36,7 @@ download_eggnog_data.py
 
 If an error arises be sure that the folder where the script is trying to put the databases exists
 
-3. Download tge original F100 repository and add the scripts to the bin folder in the conda environment (important step! Otherwise the F100_main.py script won't work)
+3. Download the original F100 repository and add the scripts to the bin folder in the conda environment (important step! Otherwise the F100_main.py script won't work)
 
 ```
 git clone https://github.com/rotheconrad/F100_Prok_Recombination.git
@@ -47,7 +47,10 @@ for i in F100_Prok_Recombination/00d_Workflow_Scripts/*.py ; do sed -i "1s?.*?\#
 cp F100_Prok_Recombination/00d_Workflow_Scripts/*.py $env_bin_dir
 ```
 
-
+4. Clone the repository or download the F100_main.py script
+```
+git clone
+```
 
 ## Brief description
 
