@@ -17,7 +17,7 @@ conda activate F100
 ```
 
 ```
-pip install tqdm pyrodigal cogclassifier
+pip install tqdm pyrodigal
 ```
 
 2. EggNog and/or COGclassifier should be installed (at least one of them):
@@ -41,9 +41,9 @@ If an error arises be sure that the folder where the script is trying to put the
 ```
 git clone https://github.com/rotheconrad/F100_Prok_Recombination.git
 chmod +x F100_Prok_Recombination/00d_Workflow_Scripts/*.py
-env_bin_dir=${PATH%%:*}
-var=$(echo $env_bin_dir/python)
-for i in F100_Prok_Recombination/00d_Workflow_Scripts/*.py ; do sed -i "1s?.*?\#\!$var?" $i ; done
+py_path=$(which python)
+for i in F100_Prok_Recombination/00d_Workflow_Scripts/*.py ; do sed -i "1s?.*?\#\!$py_path?" $i ; done
+env_bin_dir=${py_path%%python}
 cp F100_Prok_Recombination/00d_Workflow_Scripts/*.py $env_bin_dir
 ```
 
