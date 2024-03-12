@@ -393,7 +393,7 @@ def run_metadata(in_dir, threads, out_pre, user_cl, user_md, user_md_color, no_m
 
 
 def join_genes(in_dir, out_genes_dir):
-    gene_files = glob.glob(f"{in_dir}1_Preprocessing/Genes_nt/*.fnn")
+    gene_files = glob.glob(f"{in_dir}/1_Preprocessing/Genes_nt/*.fnn")
     #
     all_genes_file = f"{out_genes_dir}/all_genes.fnn"
     with open(all_genes_file, "wb") as out_file:
@@ -404,7 +404,7 @@ def join_genes(in_dir, out_genes_dir):
 
 
 def join_prots(in_dir, out_genes_dir):
-    gene_files = glob.glob(f"{in_dir}1_Preprocessing/Genes_aa/*.faa")
+    gene_files = glob.glob(f"{in_dir}/1_Preprocessing/Genes_aa/*.faa")
     #
     all_genes_file = f"{out_genes_dir}/all_genes.faa"
     with open(all_genes_file, "wb") as out_file:
@@ -427,7 +427,7 @@ def mmseqs2(gene_file, out_genes_dir, threads):
     return(rep_gene_file)
 
 
-def make_gene_plots(out_genes_dir, species, log_path):
+def make_gene_plots(out_genes_dir, species, log_path, logger):
     # Create binary matrix (genomes vs genes)
     res_bin_to_mat = subprocess.call(f'03a_MMSeqsTSV-to-BinaryMatrix.py -i {out_genes_dir}/all_genes_CDS_mmseqs_clusters.tsv -o {out_genes_dir}/pangenome_matrix.tsv >> {log_path} 2>&1', shell=True)
     # Check exit status. 0 = the script run correctly
@@ -500,7 +500,7 @@ def run_genes(in_dir, tool, threads, species):
 
     # Plot pangenome and clustermap
     logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), "] Plotting pangenome and clustermap...\n\n"]))
-    _ = make_gene_plots(out_genes_dir, species, log_path)
+    _ = make_gene_plots(out_genes_dir, species, log_path, logger)
 
     # Annotate genes with eggnog or cogclassifier
     logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), "] Annotating genes with {0}...\n\n".format(tool)]))
