@@ -170,7 +170,7 @@ def run_RBM(out_dir, threads, logger):
     for process in processes_blast:
         process.join()
     # Remove blast databases
-    list_dbs = glob.glob(f'{out_dir}/1_Preprocessing/Genes_nt/.fnn.*')
+    list_dbs = glob.glob(f'{out_dir}/1_Preprocessing/Genes_nt/*.fnn.*')
     for db in list_dbs:
         os.remove(db)
     
@@ -306,7 +306,6 @@ def run_fastANI(genome_sim_dir, list_genomes, in_dir, threads, logger, log_path)
         _ = fastANI(genome_file_list, genome_file_list, genome_sim_dir, num, logger)
     else:
         _ = parallel_fastANI(list_genomes, genome_file_list, genome_sim_dir, threads, logger)
-
 
 
 def run_metadata(in_dir, threads, out_pre, user_cl, user_md, user_md_color, no_md, ani_min, ani_max, metric, method):
