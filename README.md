@@ -160,14 +160,18 @@ conda activate F100
 python F100_main.py preprocessing --in_dir genomes/ --out_dir Sruber -t 8
 
 
-# Run models.
-# The Pre-built_models can include the models Subsampled_Genome_Model_Data.tsv.zip and Simulated_Neutral_Model_Data.tsv.zip available in https://github.com/rotheconrad/F100_Prok_Recombination/ and/or those previously built by the user.
-# Instead of a folder you can simply specify the path the one specific model with the -mfi argument 
-python F100_main.py models --in_dir Sruber --output_file_prefix results -mfo Pre-built_models/
+# Run metadata
+python F100_main.py metadata --in_dir Sruber --output_file_prefix results -t 8
 
 
 # Run gene-analysis
 python F100_main.py gene-analysis --in_dir Sruber -sp Sruber -t 8 --tool eggnog
+
+
+# Run models.
+# The Pre-built_models can include the models Subsampled_Genome_Model_Data.tsv.zip and Simulated_Neutral_Model_Data.tsv.zip available in https://github.com/rotheconrad/F100_Prok_Recombination/ and/or those previously built by the user.
+# Instead of a folder you can simply specify the path the one specific model with the -mfi argument 
+python F100_main.py models --in_dir Sruber --output_file_prefix results -mfo Pre-built_models/
 
 
 # Run one vs one
