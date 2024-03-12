@@ -20,6 +20,7 @@ import subprocess
 import time
 import pandas as pd
 import random
+import logging
 from tqdm import tqdm
 from datetime import datetime
 from multiprocessing.pool import ThreadPool as Pool
@@ -27,32 +28,38 @@ from multiprocessing import Process
 from zipfile import ZipFile
 
 
+def create_log(log_path):
+    logger = logging.getLogger()
+    fileHandler = logging.FileHandler(log_path)
+    logger.addHandler(fileHandler)
+    consoleHandler = logging.StreamHandler()
+    logger.addHandler(consoleHandler)
+    logger.setLevel(logging.INFO)
+    return(logger)
+
+
 def call_rename(file):
-    rename=subprocess.Popen(f'01a_rename_fasta_v2.py -i {file}', shell=True, stdout=subprocess.DEVNULL)
+    rename=subprocess.Popen(f'01a_rename_fasta.py -i {file}', shell=True, stdout=subprocess.DEVNULL)
     rename.wait()
 
-def run_rename(in_dir, out_dir, threads):
-    # Create directory to place the input genomes if doesn't exist yet. 
-    if os.path.isdir(out_dir) == False:
-        os.mkdir(out_dir)
-        os.mkdir(f"{out_dir}/1_Preprocessing/")
-        os.mkdir(f"{out_dir}/1_Preprocessing/Genomes/")
-    else:
-        # Exit if output directory exists
-        print("Output directory already exists, remove or use a different name")
-        exit()
+
+def run_rename(in_dir, pre_out_dir, threads):
+    # Check if genomes directory exists, otherwise create it
+    genomes_out_dir = f"{pre_out_dir}Genomes/"
+    if os.path.isdir(genomes_out_dir) == False:
+        os.mkdir(genomes_out_dir)
 
     # List input genomes
-    genomes_out_dir=glob.glob(f'{in_dir}*')
+    genomes_in_dir=glob.glob(f'{in_dir}*')
 
     # Get only the genome name, remove the remaining path and copy to output directory
-    for genome in genomes_out_dir:
+    for genome in genomes_in_dir:
         genome_filename = genome.split("/")[-1]
-        target = f'{out_dir}/1_Preprocessing/Genomes/{genome_filename}'
+        target = f'{genomes_out_dir}{genome_filename}'
         shutil.copy(genome, target)
 
     # List input genomes in output directory and rename
-    list_genomes = glob.glob(f'{out_dir}/1_Preprocessing/Genomes/*')
+    list_genomes = glob.glob(f'{genomes_out_dir}*')
 
     ## Multiprocessing
     pool_size = threads
@@ -66,15 +73,17 @@ def run_rename(in_dir, out_dir, threads):
     return(list_genomes)
 
 
-def call_prodigal(list):
+def call_prodigal(list, logger):
     for file in list:
         file_split = file.split("/")
         genome_filename = file_split[-1].rsplit(".", 1)[0]
         out_dir = '/'.join([file_split[0], file_split[1]])
         pyrodigal=subprocess.call(f'pyrodigal -i {file} -a {out_dir}/Genes_aa/{genome_filename}.faa -d {out_dir}/Genes_nt/{genome_filename}.fnn', shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if pyrodigal != 0:
+            logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), f"] ERROR: subprocess returned code {pyrodigal}. Pyrodigal failed with {file}. DO NOT IGNORE!"]))
 
 
-def run_prodigal(out_dir, threads):
+def run_prodigal(out_dir, threads, logger):
     # Create output directories for genes and proteins
     os.mkdir(f"{out_dir}/1_Preprocessing/Genes_nt/")
     os.mkdir(f"{out_dir}/1_Preprocessing/Genes_aa/")
@@ -88,7 +97,7 @@ def run_prodigal(out_dir, threads):
     #
     start = time.time()
     # Start processes in parallel
-    processes_pyrodigal = [Process(target=call_prodigal, args=(i, )) for i in splitted_list]
+    processes_pyrodigal = [Process(target=call_prodigal, args=(i, logger )) for i in splitted_list]
     for process in processes_pyrodigal:
         process.start()
     # wait for all processes to complete
@@ -96,14 +105,153 @@ def run_prodigal(out_dir, threads):
         process.join()
     #
     end = time.time()
-    print("Elapsed time: %s seconds" % (end - start))
 
 
-def fastANI(query_list, subject_list, genome_sim_dir, num):
-    _ = subprocess.call(f'fastANI --ql {query_list} --rl {subject_list} -o {genome_sim_dir}/fastANI_allV{num}.ani > /dev/null 2>&1', shell=True)
+def makedb(splitted_list, logger):
+    for genome in splitted_list:
+        res_makedb = subprocess.call(f'makeblastdb -in {genome} -dbtype nucl', shell=True)
+        # Check exit status. 0 = the script run correctly
+        if res_makedb != 0:
+            logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), f"] ERROR: subprocess returned code {res_makedb}. makeblastdb failed with {genome}. DO NOT IGNORE!"]))
 
 
-def parallel_fastANI(list_genomes, genome_file_list, genome_sim_dir, threads):
+def RBM(splitted_list, full_list, logger, num):
+    short_list = splitted_list[num]
+    if num == 0:
+        pos=1
+    elif num == 1:
+        pos=2+len(splitted_list)
+    elif num > 1:
+        pos=((2+len(splitted_list))*(num))
+    x=1
+    for g1 in tqdm(short_list, desc=f'Main {num}', leave=False, position=pos):
+        for g2 in tqdm(full_list, desc=f'Secondary {num}-{x}', leave=False, position=pos+x):
+            out1 = g1.split('/')[-1].rsplit(".", 1)[0]
+            out2 = g2.split('/')[-1].rsplit(".", 1)[0]
+            res_rbm = subprocess.call(f'02b_get_RBMs.py -g1 {g1} -g2 {g2} -o ./tmp/{out1}-{out2}.rbm -auto True > /dev/null 2>&1', shell=True)
+            # Check exit status. 0 = the script run correctly
+            if res_rbm != 0:
+                logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), f"] ERROR: subprocess returned code {res_rbm}. 02b_get_RBMs.py failed for {g1} vs {g2}. DO NOT IGNORE!"]))
+        x=x+1
+
+
+def run_RBM(out_dir, threads, logger):
+    # Create dir for results
+    RBM_dir = f"{out_dir}/1_Preprocessing/RBM_results"
+    os.mkdir(RBM_dir)
+    os.mkdir("./tmp")
+    
+    # Get list of files
+    list_genes = glob.glob(f'{out_dir}/1_Preprocessing/Genes_nt/*')
+    
+    # Calculate chunk size and split list genes
+    chunk_size = int(round(len(list_genes) / threads, 0))
+    splitted_list = [list_genes[i:i + chunk_size] for i in range(0, len(list_genes), chunk_size)]
+    
+    start = time.time()
+    # Start processes in parallel
+    logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"),"] Building blast databases for input genes..."]))
+    processes_db = [Process(target=makedb, args=(i, logger )) for i in splitted_list]
+    for process in processes_db:
+        process.start()
+    # wait for all processes to complete
+    for process in processes_db:
+        process.join()
+    
+    end = time.time()
+    logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), "] Elapsed time: %s seconds" % (end - start)]))
+    
+    logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), "] Running blast..."]))
+    start = time.time()
+    processes_blast = [Process(target=RBM, args=(splitted_list, list_genes, logger, i )) for i in range(0, len(splitted_list))]
+    for process in processes_blast:
+        process.start()
+    # wait for all processes to complete
+    for process in processes_blast:
+        process.join()
+    # Remove blast databases
+    list_dbs = glob.glob(f'{out_dir}/1_Preprocessing/Genes_nt/.fnn.*')
+    for db in list_dbs:
+        os.remove(db)
+    
+    end = time.time()
+    logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), "] Elapsed time: %s seconds" % (end - start)]))
+
+
+def join_RBM(out_dir):
+    rbm_files = glob.glob("./tmp/*.rbm")
+    
+    with open(f"{out_dir}/1_Preprocessing/RBM_results/RBMs_allV.rbm", "wb") as out_file:
+        for f in tqdm(rbm_files):
+            with open(f, "rb") as in_file:
+                out_file.write(in_file.read())
+    
+    shutil.rmtree('./tmp/')
+
+
+def calculate_F100(out_dir, rec_threshold, logger, log_path):
+    # Print message
+    logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), "] Running script 02c_get_F100.py...\n\n"]))
+    
+    # Run calculation to get F100 file
+    res_get_F100 = subprocess.call(f'02c_get_F100.py -i {out_dir}/1_Preprocessing/RBM_results/RBMs_allV.rbm -o {out_dir} -rec {rec_threshold} >> {log_path} 2>&1', shell=True)
+    
+    # Check exit status. 0 = the script run correctly
+    if res_get_F100 != 0:
+        logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), f"] ERROR: subprocess returned code {res_get_F100}. 02c_get_F100.py failed with {out_dir}/1_Preprocessing/RBM_results/RBMs_allV.rbm. DO NOT IGNORE!"]))
+    
+    # Move F100 file to output folder
+    shutil.move(f'{out_dir}_F100.tsv', f'{out_dir}/1_Preprocessing/RBM_results/')
+
+
+def run_preprocessing(in_dir, out_dir, threads, rec_threshold):
+    # Create directory to place the input genomes if doesn't exist yet.
+    pre_out_dir = f"{out_dir}/1_Preprocessing/"
+    if os.path.isdir(out_dir) == False:
+        os.mkdir(out_dir)
+        os.mkdir(pre_out_dir)
+    else:
+        # Exit if output directory exists
+        print("Output directory already exists, remove or use a different name")
+        sys.exit()
+
+    # Create log file
+    log_path = f'{pre_out_dir}1_preprocessing.log'
+    logger = create_log(log_path)
+    
+    # Print start message
+    logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), "] Starting preprocessing workflow...\n\n"]))
+    
+    # Rename
+    logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), "] Renaming genomes...\n\n"]))
+    list_genomes = run_rename(in_dir, pre_out_dir, threads)
+    
+    # Predict genes and proteins with pyrodigal
+    logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), "] Running prodigal...\n\n"]))
+    _ = run_prodigal(out_dir, threads, logger)
+    
+    # Calculate RBM
+    logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), "] Obtaining reciprocal best matches, this might take a while...\n\n"]))
+    _ = run_RBM(out_dir, threads, logger)
+    
+    # Join RBM into a single file
+    logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), "] Joining reciprocal best matches to a single file...\n\n"]))
+    _ = join_RBM(out_dir)
+    
+    # Calculate F100 scores
+    logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), "] Calculating F100 scores...\n\n"]))
+    _ = calculate_F100(out_dir, rec_threshold, logger, log_path)
+
+
+def fastANI(query_list, subject_list, genome_sim_dir, num, logger):
+    res_fastANI = subprocess.call(f'fastANI --ql {query_list} --rl {subject_list} -o {genome_sim_dir}/fastANI_allV{num}.ani > /dev/null 2>&1', shell=True)
+    
+    # Check exit status. 0 = the script run correctly
+    if res_fastANI != 0:
+        logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), f"] ERROR: subprocess returned code {res_fastANI}. fastANI failed for {query_list} vs {subject_list}. DO NOT IGNORE!"]))
+
+
+def parallel_fastANI(list_genomes, genome_file_list, genome_sim_dir, threads, logger):
     # Split list genomes
     chunk_size = int(round(len(list_genomes) / threads, 0))
     splitted_list = [list_genomes[i:i + chunk_size] for i in range(0, len(list_genomes), chunk_size)]
@@ -119,7 +267,7 @@ def parallel_fastANI(list_genomes, genome_file_list, genome_sim_dir, threads):
         list_query_files.append(out_query_file)
 
     # Start processes in parallel
-    processes_fastANI = [Process(target=fastANI, args=(sublist, genome_file_list, genome_sim_dir, num, )) for num, sublist in enumerate(list_query_files)]
+    processes_fastANI = [Process(target=fastANI, args=(sublist, genome_file_list, genome_sim_dir, num, logger )) for num, sublist in enumerate(list_query_files)]
     for process in processes_fastANI:
         process.start()
     
@@ -144,11 +292,7 @@ def parallel_fastANI(list_genomes, genome_file_list, genome_sim_dir, threads):
         os.remove(query_file)
 
 
-def run_fastANI(list_genomes, out_dir, threads):
-    # Create dir for results
-    genome_sim_dir = f'{out_dir}/1_Preprocessing/Genome_similarity'
-    os.mkdir(genome_sim_dir)
-    
+def run_fastANI(genome_sim_dir, list_genomes, in_dir, threads, logger, log_path):    
     # Save genome files list
     genome_file_list = f'{genome_sim_dir}/genome_file_list.txt'
     with open(genome_file_list, 'w') as f:
@@ -159,175 +303,93 @@ def run_fastANI(list_genomes, out_dir, threads):
     # Run fastANI
     if len(list_genomes) < 50:
         num=''
-        _ = fastANI(genome_file_list, genome_file_list, genome_sim_dir, num)
+        _ = fastANI(genome_file_list, genome_file_list, genome_sim_dir, num, logger)
     else:
-        _ = parallel_fastANI(list_genomes, genome_file_list, genome_sim_dir, threads)
+        _ = parallel_fastANI(list_genomes, genome_file_list, genome_sim_dir, threads, logger)
+
+
+
+def run_metadata(in_dir, threads, out_pre, user_cl, user_md, user_md_color, no_md, ani_min, ani_max, metric, method):
+    # Check if genome similarity dir already exists
+    genome_sim_dir = f'{in_dir}/2_Metadata/'
+    if os.path.isdir(genome_sim_dir) == False:
+        # If it doesn't exist, then create a new dir to place results
+        os.mkdir(genome_sim_dir)
+
+    # Create log file
+    log_path = f'{genome_sim_dir}2_metadata.log'
+    logger = create_log(log_path)
+
+    # Print start message
+    logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), "] Starting metadata workflow...\n\n"]))
+
+    # Check if there is a previous fastANI table. If false, run fastANI, else skip it
+    if os.path.isfile(f'{genome_sim_dir}/fastANI_allV.ani') == False:
+        # Estimate genome similarity with fastANI
+        logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), "] Running fastANI...\n\n"]))
+        list_genomes = glob.glob(f'{in_dir}/1_Preprocessing/Genomes/*')
+        _ = run_fastANI(genome_sim_dir, list_genomes, in_dir, threads, logger, log_path)
+    else:
+        # Skip fastANI calculation
+        logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), "] fastANI table found, skipping fastANI calculation...\n\n"]))
 
     # Make plots based on ANI values
-    print(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), "] Running script 01b_fastANI_scatter_pyGAM.py...\n\n"]))
-    _ = subprocess.call(f'01b_fastANI_scatter_pyGAM.py -i {genome_sim_dir}/fastANI_allV.ani -s {out_dir} -o fastANI_allV_sharedfrac_ANI.pdf -m True', shell=True)
+    script_1 = '01b_fastANI_scatter_pyGAM.py'
+    logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), f"] Running script {script_1}...\n\n"]))
+    res_scatter_pyGAM = subprocess.call(f'{script_1} -i {genome_sim_dir}/fastANI_allV.ani -s {in_dir} -o fastANI_allV_sharedfrac_ANI.pdf -m True >> {log_path} 2>&1', shell=True)
     shutil.move('fastANI_allV_sharedfrac_ANI.pdf', genome_sim_dir)
+    # Check exit status. 0 = the script run correctly
+    if res_scatter_pyGAM != 0:
+        logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), f"] ERROR: subprocess returned code {res_scatter_pyGAM}. {script_1} failed with {genome_sim_dir}/fastANI_allV.ani. DO NOT IGNORE!"]))
     
-    print(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), "] Running script 01c_fastANI_clustermap.py...\n\n"]))
-    _ = subprocess.call(f'01c_fastANI_clustermap.py -i {genome_sim_dir}/fastANI_allV.ani -o fastANI_allV_heatmap.pdf', shell=True)
-    shutil.move('fastANI_allV_heatmap.pdf', genome_sim_dir)
+    # Build metadata. Three different modes
+    script_2 = '01c_fastANI_clustermap_v2.py'
+    # 1. Default mode, clusters automatically defined based on peaks and valleys
+    if user_cl == None and user_md == None:
+        logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), f"] Building metadata table with script {script_2} in default mode...\n\n"]))
+        res_clustermap = subprocess.call(f'{script_2} -i {genome_sim_dir}/fastANI_allV.ani -o {out_pre} -min {ani_min} -max {ani_max} -metric {metric} -method {method} >> {log_path} 2>&1', shell=True)
+        # Check exit status. 0 = the script run correctly
+        if res_clustermap != 0:
+            logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), f"] ERROR: subprocess returned code {res_clustermap}. {script_2} failed with {genome_sim_dir}/fastANI_allV.ani. DO NOT IGNORE!"]))
 
+    # 2. User provide a list of ANI values to delineate cluster
+    elif user_cl != None and user_md == None:
+        logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), f"] Building metadata table with script {script_2} using user-defined thresholds: {user_cl}...\n\n"]))
+        res_clustermap = subprocess.call(f'{script_2} -i {genome_sim_dir}/fastANI_allV.ani -o {out_pre} -min {ani_min} -max {ani_max} -metric {metric} -method {method} -user {user_cl} >> {log_path} 2>&1', shell=True)
+        # Check exit status. 0 = the script run correctly
+        if res_clustermap != 0:
+            logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), f"] ERROR: subprocess returned code {res_clustermap}. {script_2} failed with {genome_sim_dir}/fastANI_allV.ani. DO NOT IGNORE!"]))
 
-def makedb(splitted_list):
-    for genome in splitted_list:
-        subprocess.call(f'makeblastdb -in {genome} -dbtype nucl', shell=True)
+    # 3. User provide a metadata file
+    elif user_cl == None and user_md != None:
+        # with no color metadata
+        if user_md_color == None:
+            logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), f"] Building metadata table with script {script_2} using user-defined metadata file: {user_md}...\n\n"]))
+            res_clustermap = subprocess.call(f'{script_2} -i {genome_sim_dir}/fastANI_allV.ani -o {out_pre} -min {ani_min} -max {ani_max} -metric {metric} -method {method} -m {user_md} >> {log_path} 2>&1', shell=True)
+        # Check exit status. 0 = the script run correctly
+            if res_clustermap != 0:
+                logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), f"] ERROR: subprocess returned code {res_clustermap}. {script_2} failed with {genome_sim_dir}/fastANI_allV.ani. DO NOT IGNORE!"]))
+        
+        # with color metadata
+        if user_md_color != None:
+            logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), f"] Building metadata table with script {script_2} using user-defined metadata file: {user_md}...\n\n"]))
+            res_clustermap = subprocess.call(f'v -i {genome_sim_dir}/fastANI_allV.ani -o {out_pre} -min {ani_min} -max {ani_max} -metric {metric} -method {method} -m {user_md} -c {user_md_color} >> {log_path} 2>&1', shell=True)
+            # Check exit status. 0 = the script run correctly
+            if res_clustermap != 0:
+                logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), f"] ERROR: subprocess returned code {res_clustermap}. {script_2} failed with {genome_sim_dir}/fastANI_allV.ani. DO NOT IGNORE!"]))
+            
 
+    # Two inputs provided which doesn't make sense. Abort.
+    elif user_cl != None and user_md != None:
+        logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), f"] Error, exiting calculation. Please, provide only one of: {user_cl} or {user_md}. The script can't use both input sources at the same time\n\n"]))
+        sys.exit()
 
-def RBM(splitted_list, full_list, num):
-    short_list = splitted_list[num]
-    if num == 0:
-        pos=1
-    elif num == 1:
-        pos=2+len(splitted_list)
-    elif num > 1:
-        pos=((2+len(splitted_list))*(num))
-    x=1
-    for g1 in tqdm(short_list, desc=f'Main {num}', leave=False, position=pos):
-        for g2 in tqdm(full_list, desc=f'Secondary {num}-{x}', leave=False, position=pos+x):
-            out1 = g1.split('/')[-1].rsplit(".", 1)[0]
-            out2 = g2.split('/')[-1].rsplit(".", 1)[0]
-            subprocess.call(f'02b_get_RBMs_pipeline_auto.py -g1 {g1} -g2 {g2} -o ./tmp/{out1}-{out2}.rbm > /dev/null 2>&1', shell=True)
-        x=x+1
-
-
-def run_RBM(out_dir, threads):
-    # Create dir for results
-    RBM_dir = f"{out_dir}/1_Preprocessing/RBM_results"
-    os.mkdir(RBM_dir)
-    os.mkdir("./tmp")
-    
-    # Get list of files
-    list_genes = glob.glob(f'{out_dir}/1_Preprocessing/Genes_nt/*')
-    
-    # Calculate chunk size and split list genes
-    chunk_size = int(round(len(list_genes) / threads, 0))
-    splitted_list = [list_genes[i:i + chunk_size] for i in range(0, len(list_genes), chunk_size)]
-    #
-    start = time.time()
-    #
-    print("Building blast databases for input genes..")
-    processes_db = [Process(target=makedb, args=(i, )) for i in splitted_list]
-    for process in processes_db:
-        process.start()
-    # wait for all processes to complete
-    for process in processes_db:
-        process.join()
-    #
-    end = time.time()
-    print("Elapsed time: %s seconds" % (end - start))
-    #
-    
-    print("Running blast...")
-    start = time.time()
-    processes_blast = [Process(target=RBM, args=(splitted_list, list_genes, i )) for i in range(0, len(splitted_list))]
-    for process in processes_blast:
-        process.start()
-    # wait for all processes to complete
-    for process in processes_blast:
-        process.join()
-    # Remove blast databases
-    list_dbs = glob.glob(f'{out_dir}/1_Preprocessing/Genes_nt/.fnn.*')
-    for db in list_dbs:
-        os.remove(db)
-    
-    end = time.time()
-    print("Elapsed time: %s seconds" % (end - start))
-
-
-def join_RBM(out_dir):
-    rbm_files = glob.glob("./tmp/*.rbm")
-    
-    with open(f"{out_dir}/1_Preprocessing/RBM_results/RBMs_allV.rbm", "wb") as out_file:
-        for f in tqdm(rbm_files):
-            with open(f, "rb") as in_file:
-                out_file.write(in_file.read())
-    
-    shutil.rmtree('./tmp/')
-
-
-def calculate_F100(out_dir, rec_threshold):
-    print(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), "] Running script 02c_get_F100.py...\n\n"]))
-    subprocess.call(f'02c_get_F100.py -i {out_dir}/1_Preprocessing/RBM_results/RBMs_allV.rbm -o {out_dir} -rec {rec_threshold}', shell=True)
-    shutil.move(f'{out_dir}_F100.tsv', f'{out_dir}/1_Preprocessing/RBM_results/')
-
-
-def run_preprocessing(in_dir, out_dir, threads, rec_threshold):
-    # Rename
-    print(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), "] Renaming genomes...\n\n"]))
-    list_genomes = run_rename(in_dir, out_dir, threads)
-    
-    # Predict genes and proteins with pyrodigal
-    print(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), "] Running prodigal...\n\n"]))
-    _ = run_prodigal(out_dir, threads)
-    
-    # Estimate genome similarity with fastANI
-    print(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), "] Running fastANI...\n\n"]))
-    _ = run_fastANI(list_genomes, out_dir, threads)
-    
-    # Calculate RBM
-    print(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), "] Obtaining reciprocal best matches, this might take a while...\n\n"]))
-    _ = run_RBM(out_dir, threads)
-    
-    # Join RBM into a single file
-    print(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), "] Joining reciprocal best matches to a single file...\n\n"]))
-    _ = join_RBM(out_dir)
-    
-    # Calculate F100 scores
-    print(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), "] Calculating F100 scores...\n\n"]))
-    _ = calculate_F100(out_dir, rec_threshold)
-
-
-def run_models(out_dir, in_file, out_file, plot_title, xaxis_min, xaxis_max, yaxis_min, yaxis_max, model_file, prebuilt_folder, xaxis_step_size, point_size, point_alpha):
-    # Create dir for results if doesn't exist
-    out_models_dir = f"{out_dir}/2_Models"
-    if os.path.isdir(out_models_dir) == False:
-        os.mkdir(out_models_dir)
-    
-    # Run script depending on the variables provided by the user
-    if prebuilt_folder is not None:
-        # Models in folder
-        if os.path.isdir(prebuilt_folder) == True:
-            models_analyzed = []
-            list_models = glob.glob(f'{prebuilt_folder}/*')
-            for model in list_models:
-                if os.path.isfile(model) == True and os.path.splitext(model)[0] not in list_models:
-                    if os.path.splitext(model)[1] == ".zip":
-                        # Extract zip file
-                        with ZipFile(model, 'r') as zip_file:
-                            list_names = zip_file.namelist()
-                            zip_file.extractall(prebuilt_folder)
-                        unzipped_model = os.path.splitext(model)[0]
-                        models_analyzed.append(unzipped_model)
-                        
-                        # Rename zip file to match the original zip file
-                        os.rename(f'{prebuilt_folder}/{list_names[0]}', unzipped_model)
-                        
-                        # Set outfile prefix and run script
-                        out_prefix = f'{out_file}_{unzipped_model.split("/")[-1].rsplit(".", 1)[0]}'
-                        subprocess.call(f'02d_f100_scatter_pyGAM.py -i {unzipped_model} -o {out_prefix} -t {plot_title} -xmin {xaxis_min} -xmax {xaxis_max} -ymin {yaxis_min} -ymax {yaxis_max} -s {xaxis_step_size} -p {point_size} -a {point_alpha} -i2 {in_file}', shell=True)
-                    else:
-                        # Just analyze the tsv file
-                        models_analyzed.append(model)
-                        out_prefix = f'{out_file}_{model.split("/")[-1].rsplit(".", 1)[0]}'
-                        subprocess.call(f'02d_f100_scatter_pyGAM.py -i {model} -o {out_prefix} -t {plot_title} -xmin {xaxis_min} -xmax {xaxis_max} -ymin {yaxis_min} -ymax {yaxis_max} -s {xaxis_step_size} -p {point_size} -a {point_alpha} -i2 {in_file}', shell=True)
-        else:
-            print(f'{prebuilt_folder} is not a folder. Please, provide the path to a folder containing the pre-built models in .zip or .tsv')
-    else:
-        # Model in file
-        if os.path.isfile(model_file) == True:
-            subprocess.call(f'02d_f100_scatter_pyGAM.py -i {model_file} -o {out_file} -t {plot_title} -xmin {xaxis_min} -xmax {xaxis_max} -ymin {yaxis_min} -ymax {yaxis_max} -s {xaxis_step_size} -p {point_size} -a {point_alpha} -i2 {in_file}', shell=True)
-        else:
-            print('Exiting, there was no input model. Please, specify one!')
-            sys.exit()
-    # Move tsv and pdf files to the 2_Models folder
-    list_output_files = glob.glob(f"./{out_file}_*")
+    # Move tsv and pdf files to the 2_Metadata folder
+    list_output_files = glob.glob(f"./{out_pre}_*")
     for file in list_output_files:
-        shutil.move(file,out_models_dir)
+        if os.path.isfile(file) == True:
+            shutil.copy(file, genome_sim_dir)
+            os.remove(file)
 
 
 def join_genes(in_dir, out_genes_dir):
@@ -354,46 +416,66 @@ def join_prots(in_dir, out_genes_dir):
 
 def mmseqs2(gene_file, out_genes_dir, threads):
     os.mkdir("./mmseqs_tmp")
-    subprocess.call(f'mmseqs createdb {gene_file} ./mmseqs_tmp/gene_db -v 1', shell=True)
-    subprocess.call(f'mmseqs cluster ./mmseqs_tmp/gene_db ./mmseqs_tmp/DBclustered tempfiles --min-seq-id 0.90 --cov-mode 1 -c 0.5 --cluster-mode 2 --cluster-reassign --threads {threads} -v 1', shell=True)
-    subprocess.call(f'mmseqs createtsv ./mmseqs_tmp/gene_db ./mmseqs_tmp/gene_db ./mmseqs_tmp/DBclustered {out_genes_dir}/all_genes_CDS_mmseqs_clusters.tsv --threads {threads} -v 1', shell=True)
-    subprocess.call(f'mmseqs createsubdb ./mmseqs_tmp/DBclustered ./mmseqs_tmp/gene_db ./mmseqs_tmp/my_rep_seqs -v 1', shell=True)
+    res_mmseqs_db = subprocess.call(f'mmseqs createdb {gene_file} ./mmseqs_tmp/gene_db -v 1', shell=True)
+    res_mmseqs_cluster = subprocess.call(f'mmseqs cluster ./mmseqs_tmp/gene_db ./mmseqs_tmp/DBclustered tempfiles --min-seq-id 0.90 --cov-mode 1 -c 0.5 --cluster-mode 2 --cluster-reassign --threads {threads} -v 1', shell=True)
+    res_mmseqs_tsv = subprocess.call(f'mmseqs createtsv ./mmseqs_tmp/gene_db ./mmseqs_tmp/gene_db ./mmseqs_tmp/DBclustered {out_genes_dir}/all_genes_CDS_mmseqs_clusters.tsv --threads {threads} -v 1', shell=True)
+    res_mmseqs_subdb = subprocess.call(f'mmseqs createsubdb ./mmseqs_tmp/DBclustered ./mmseqs_tmp/gene_db ./mmseqs_tmp/my_rep_seqs -v 1', shell=True)
     rep_gene_file = f'{out_genes_dir}/my_rep_seqs.fnn'
-    subprocess.call(f'mmseqs convert2fasta mmseqs_tmp/my_rep_seqs {rep_gene_file} -v 1', shell=True)
+    res_mmseqs_convert = subprocess.call(f'mmseqs convert2fasta mmseqs_tmp/my_rep_seqs {rep_gene_file} -v 1', shell=True)
     shutil.rmtree('mmseqs_tmp')
 
     return(rep_gene_file)
 
 
-def make_gene_plots(out_genes_dir, species):
+def make_gene_plots(out_genes_dir, species, log_path):
     # Create binary matrix (genomes vs genes)
-    subprocess.call(f'03a_MMSeqsTSV-to-BinaryMatrix.py -i {out_genes_dir}/all_genes_CDS_mmseqs_clusters.tsv -o {out_genes_dir}/pangenome_matrix.tsv', shell=True)
-    
+    res_bin_to_mat = subprocess.call(f'03a_MMSeqsTSV-to-BinaryMatrix.py -i {out_genes_dir}/all_genes_CDS_mmseqs_clusters.tsv -o {out_genes_dir}/pangenome_matrix.tsv >> {log_path} 2>&1', shell=True)
+    # Check exit status. 0 = the script run correctly
+    if res_bin_to_mat != 0:
+        logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), f"] ERROR: subprocess returned code {res_bin_to_mat}. 03a_MMSeqsTSV-to-BinaryMatrix.py failed with {out_genes_dir}/all_genes_CDS_mmseqs_clusters.tsv. DO NOT IGNORE!"]))
+
     # Plot pangenome plot
-    subprocess.call(f'03b_Pangenome_Calculate_Model_Plot.py -b {out_genes_dir}/pangenome_matrix.tsv -o {out_genes_dir}/pangenome_model -n {species}', shell=True)
-    
+    res_pangenome = subprocess.call(f'03b_Pangenome_Calculate_Model_Plot.py -b {out_genes_dir}/pangenome_matrix.tsv -o {out_genes_dir}/pangenome_model -n {species} >> {log_path} 2>&1', shell=True)
+    # Check exit status. 0 = the script run correctly
+    if res_pangenome != 0:
+        logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), f"] ERROR: subprocess returned code {res_pangenome}. 03b_Pangenome_Calculate_Model_Plot.py failed with {out_genes_dir}/pangenome_matrix.tsv. DO NOT IGNORE!"]))
+
     # Plot heatmap genomes vs genes
-    subprocess.call(f'03c_Clustermap_fromBinary.py -b {out_genes_dir}/pangenome_matrix.tsv -o {out_genes_dir}/pangenome_clustermap.pdf', shell=True)
+    res_clustermap_binary = subprocess.call(f'03c_Clustermap_fromBinary.py -b {out_genes_dir}/pangenome_matrix.tsv -o {out_genes_dir}/pangenome_clustermap.pdf >> {log_path} 2>&1', shell=True)
+    # Check exit status. 0 = the script run correctly
+    if res_clustermap_binary != 0:
+        logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), f"] ERROR: subprocess returned code {res_bin_to_mat}. 03c_Clustermap_fromBinary.py failed with {out_genes_dir}/pangenome_matrix.tsv. DO NOT IGNORE!"]))
 
 
-def annotate(in_dir, out_genes_dir, rep_gene_file, tool, threads, species):
+def annotate(in_dir, out_genes_dir, rep_gene_file, tool, threads, species, logger, log_path):
     # Join all protein files into a single file
     prot_file = join_prots(in_dir, out_genes_dir)
 
     # Get representative protein sequences using representative gene sequences file
-    subprocess.call(f'03d_get_AA_reps_fasta.py -r {rep_gene_file} -a {prot_file} -o {out_genes_dir}/my_rep_seqs.faa', shell=True)
-    
+    res_aa_reps = subprocess.call(f'03d_get_AA_reps_fasta.py -r {rep_gene_file} -a {prot_file} -o {out_genes_dir}/my_rep_seqs.faa >> {log_path} 2>&1', shell=True)
+    # Check exit status. 0 = the script run correctly
+    if res_aa_reps != 0:
+        logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), f"] ERROR: subprocess returned code {res_aa_reps}. 03d_get_AA_reps_fasta.py failed. DO NOT IGNORE!"]))
+
     # Make directory to output results and annotate using the appropiate tool
     if tool == 'eggnog':
         os.mkdir(f'{out_genes_dir}/EggNog')
-        subprocess.call(f'emapper.py -i {out_genes_dir}/my_rep_seqs.faa -o {species} --output_dir {out_genes_dir}/EggNog/ --cpu {threads} > /dev/null 2>&1', shell=True)
-        shutil.rmtree('./tempfiles')  
+        res_emapper = subprocess.call(f'emapper.py -i {out_genes_dir}/my_rep_seqs.faa -o {species} --output_dir {out_genes_dir}/EggNog/ --cpu {threads} >> {log_path} 2>&1', shell=True)
+        shutil.rmtree('./tempfiles') 
+        # Check exit status. 0 = the script run correctly
+        if res_emapper != 0:
+            logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), f"] ERROR: subprocess returned code {res_emapper}. emapper.py failed with {out_genes_dir}/my_rep_seqs.faa. DO NOT IGNORE!"]))
+ 
     elif tool == 'cogclassifier':
         os.mkdir(f'{out_genes_dir}/COGclassifier')
-        subprocess.call(f'COGclassifier -i {out_genes_dir}/my_rep_seqs.faa -o {out_genes_dir}/COGclassifier/ -t {threads} > /dev/null 2>&1', shell=True)
+        res_cogclassifier = subprocess.call(f'COGclassifier -i {out_genes_dir}/my_rep_seqs.faa -o {out_genes_dir}/COGclassifier/ -t {threads} >> {log_path} 2>&1', shell=True)
         shutil.rmtree('./tempfiles')
+        # Check exit status. 0 = the script run correctly
+        if res_cogclassifier != 0:
+            logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), f"] ERROR: subprocess returned code {res_cogclassifier}. COGclassifier failed with {out_genes_dir}/my_rep_seqs.faa. DO NOT IGNORE!"]))
+    
     else:
-        print(f'{tool} is not recognised as a valid annotation tool. Please provide one of: eggnog or cogclassifier')
+        logger.info(f'{tool} is not recognised as a valid annotation tool. Please provide one of: eggnog or cogclassifier')
     
 
 def run_genes(in_dir, tool, threads, species):
@@ -402,38 +484,131 @@ def run_genes(in_dir, tool, threads, species):
     if os.path.isdir(out_genes_dir) == False:
         os.mkdir(out_genes_dir)
     
+    # Create log file
+    log_path = f'{out_genes_dir}/3_gene-analysis.log'
+    logger = create_log(log_path)
+
+    # Print start message
+    logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), "] Starting gene analysis workflow...\n\n"]))
+
     # Join genes in one single file
     gene_file = join_genes(in_dir, out_genes_dir)
 
     # Cluster genes
-    print(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), "] Clustering genes with MMseqs2...\n\n"]))
+    logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), "] Clustering genes with MMseqs2...\n\n"]))
     rep_gene_file = mmseqs2(gene_file, out_genes_dir, threads)
 
     # Plot pangenome and clustermap
-    print(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), "] Plotting pangenome and clustermap...\n\n"]))
-    _ = make_gene_plots(out_genes_dir, species)
+    logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), "] Plotting pangenome and clustermap...\n\n"]))
+    _ = make_gene_plots(out_genes_dir, species, log_path)
 
     # Annotate genes with eggnog or cogclassifier
-    print(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), "] Annotating genes with {0}...\n\n".format(tool)]))
-    _ = annotate(in_dir, out_genes_dir, rep_gene_file, tool, threads, species)
+    logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), "] Annotating genes with {0}...\n\n".format(tool)]))
+    _ = annotate(in_dir, out_genes_dir, rep_gene_file, tool, threads, species, logger, log_path)
 
     # Assign pangenome class to genes
-    print(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), "] Assigning pangenome class to genes...\n\n".format(tool)]))
-    print(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), "] Running script 03e_Get_Genes_Clusters_PanCat.py...\n\n"]))
+    script = '03e_Get_Genes_Clusters_PanCat.py'
+    logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), "] Assigning pangenome class to genes...\n\n".format(tool)]))
+    logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), f"] Running script {script}...\n\n"]))
     pan_matrix = f'{out_genes_dir}/pangenome_matrix.tsv'
-    subprocess.call(f'03e_Get_Genes_Clusters_PanCat.py -b {pan_matrix} -m {out_genes_dir}/all_genes_CDS_mmseqs_clusters.tsv -r {in_dir}1_Preprocessing/RBM_results/RBMs_allV.rbm -o {out_genes_dir}/pancat_file.tsv', shell=True)
+    res_genes_pancat = subprocess.call(f'{script} -b {pan_matrix} -m {out_genes_dir}/all_genes_CDS_mmseqs_clusters.tsv -r {in_dir}1_Preprocessing/RBM_results/RBMs_allV.rbm -o {out_genes_dir}/pancat_file.tsv >> {log_path} 2>&1', shell=True)
+    # Check exit status. 0 = the script run correctly
+    if res_genes_pancat != 0:
+        logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), f"] ERROR: subprocess returned code {res_genes_pancat}. {script} failed. DO NOT IGNORE!"]))
+ 
+
+def run_models(out_dir, in_file, out_file, plot_title, xaxis_min, xaxis_max, yaxis_min, yaxis_max, model_file, prebuilt_folder, xaxis_step_size, point_size, point_alpha):
+    # Create dir for results if doesn't exist
+    out_models_dir = f"{out_dir}/4_Models"
+    if os.path.isdir(out_models_dir) == False:
+        os.mkdir(out_models_dir)
+    
+    # Create log file
+    log_path = f'{out_models_dir}/4_models.log'
+    logger = create_log(log_path)
+
+    # Print start message
+    script = '02d_f100_scatter_pyGAM.py'
+    logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), f"] Starting models workflow..."]))
+    logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), f"] Running {script} to build plots...\n\n..."]))
+    
+
+    # Run script depending on the variables provided by the user
+    if prebuilt_folder is not None:
+        # Models in folder
+        if os.path.isdir(prebuilt_folder) == True:
+            models_analyzed = []
+            list_models = glob.glob(f'{prebuilt_folder}/*')
+            for model in list_models:
+                if os.path.isfile(model) == True and os.path.splitext(model)[0] not in list_models:
+                    if os.path.splitext(model)[1] == ".zip":
+                        # Extract zip file
+                        with ZipFile(model, 'r') as zip_file:
+                            list_names = zip_file.namelist()
+                            zip_file.extractall(prebuilt_folder)
+                        unzipped_model = os.path.splitext(model)[0]
+                        models_analyzed.append(unzipped_model)
+                        
+                        # Rename zip file to match the original zip file
+                        os.rename(f'{prebuilt_folder}/{list_names[0]}', unzipped_model)
+                        
+                        # Set outfile prefix and run script
+                        out_prefix = f'{out_file}_{unzipped_model.split("/")[-1].rsplit(".", 1)[0]}'
+                        res_pyGAM = subprocess.call(f'{script} -i {unzipped_model} -o {out_prefix} -t {plot_title} -xmin {xaxis_min} -xmax {xaxis_max} -ymin {yaxis_min} -ymax {yaxis_max} -s {xaxis_step_size} -p {point_size} -a {point_alpha} -i2 {in_file} >> {log_path} 2>&1', shell=True)
+                        # Check exit status. 0 = the script run correctly
+                        if res_pyGAM != 0:
+                            logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), f"] ERROR: subprocess returned code {res_pyGAM}. {script} failed for {unzipped_model}. DO NOT IGNORE!"]))                     
+                    else:
+                        # Just analyze the tsv file
+                        models_analyzed.append(model)
+                        out_prefix = f'{out_file}_{model.split("/")[-1].rsplit(".", 1)[0]}'
+                        res_pyGAM = subprocess.call(f'{script} -i {model} -o {out_prefix} -t {plot_title} -xmin {xaxis_min} -xmax {xaxis_max} -ymin {yaxis_min} -ymax {yaxis_max} -s {xaxis_step_size} -p {point_size} -a {point_alpha} -i2 {in_file} >> {log_path} 2>&1', shell=True)
+                        # Check exit status. 0 = the script run correctly
+                        if res_pyGAM != 0:
+                            logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), f"] ERROR: subprocess returned code {res_pyGAM}. {script} failed for {model}. DO NOT IGNORE!"]))                     
+        else:
+            logger.info(f'{prebuilt_folder} is not a folder. Please, provide the path to a folder containing the pre-built models in .zip or .tsv')
+            sys.exit()
+    else:
+        # Model in file
+        if os.path.isfile(model_file) == True:
+            res_pyGAM = subprocess.call(f'{script} -i {model_file} -o {out_file} -t {plot_title} -xmin {xaxis_min} -xmax {xaxis_max} -ymin {yaxis_min} -ymax {yaxis_max} -s {xaxis_step_size} -p {point_size} -a {point_alpha} -i2 {in_file} >> {log_path} 2>&1', shell=True)
+            # Check exit status. 0 = the script run correctly
+            if res_pyGAM != 0:
+                logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), f"] ERROR: subprocess returned code {res_pyGAM}. {script} failed for {model_file}. DO NOT IGNORE!"]))                     
+        else:
+            logger.info('Exiting, there was no input model. Please, specify one!')
+            sys.exit()
+    # Move tsv and pdf files to the 4_Models folder
+    list_output_files = glob.glob(f"./{out_file}_*")
+    for file in list_output_files:
+        shutil.move(file,out_models_dir)
 
 
 def run_one_vs_one(in_dir, rbm, pancat, anot, cds_gA, cds_gB, gA, gB, out_prefix, rec, subdivisions):
     # Create directory inside input folder if that variable is passed
     if in_dir != None:
-        out_one_vs_one_dir = f"{in_dir}/4_one-vs-one"
+        out_one_vs_one_dir = f"{in_dir}/5_one-vs-one"
         if os.path.isdir(out_one_vs_one_dir) == False:
             os.mkdir(out_one_vs_one_dir)
+        # Create log file
+        log_path = f'{out_one_vs_one_dir}/5_one-vs-one_{out_prefix}.log'
+        logger = create_log(log_path)
+    else:
+        # Create log file
+        log_path = f'./5_one-vs-one_{out_prefix}.log'
+        logger = create_log(log_path)
+
+    # Print start message
+    script = '03f_Recombinant_pair_analysis.py'
+    logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), f"] Starting one vs one workflow with script {script}...\n\n"]))
 
     # Run analysis for the pair of genomes selected
-    print(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), "] Running script 03f_Recombinant_pair_analysis.py...\n\n"]))
-    subprocess.call(f'03f_Recombinant_pair_analysis.py -rbm {rbm} -pc {pancat} -ano {anot} -cA {cds_gA} -cB {cds_gB} -gA {gA} -gB {gB} -o {out_prefix} -rec {rec} -subs {subdivisions}', shell=True)
+    logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), "] Running script {script}...\n\n"]))
+    res_pair_analysis = subprocess.call(f'{script} -rbm {rbm} -pc {pancat} -ano {anot} -cA {cds_gA} -cB {cds_gB} -gA {gA} -gB {gB} -o {out_prefix} -rec {rec} -subs {subdivisions} >> {log_path} 2>&1', shell=True)
+    # Check exit status. 0 = the script run correctly
+    if res_pair_analysis != 0:
+        logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), f"] ERROR: subprocess returned code {res_pair_analysis}. {script} failed for {gA} vs {gB}. DO NOT IGNORE!"]))                     
     
     # Move the output files to the directory if in_dir is provided, otherwise leave it in current folder
     if in_dir != None:
@@ -471,11 +646,18 @@ def get_default_color_list(clade_list, out_prefix):
 def run_one_vs_many(in_dir, rbm, pancat, anot, input_list, out_prefix, rec, clade_list, color_list, species):
     # Create directory inside input folder if that variable is passed
     if in_dir != None:
-        out_one_vs_many_dir = f"{in_dir}/5_one-vs-many"
+        out_one_vs_many_dir = f"{in_dir}/6_one-vs-many"
         if os.path.isdir(out_one_vs_many_dir) == False:
             os.mkdir(out_one_vs_many_dir)
     else:
-        out_one_vs_many_dir = '.'
+        out_one_vs_many_dir = './'
+
+    # Create log file
+    log_path = f'{out_one_vs_many_dir}/6_one-vs-many_{out_prefix}.log'
+    logger = create_log(log_path)
+
+    # Print start message
+    logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), "] Starting one vs many workflow with script 03g_Recombinant_group_analysis.py...\n\n"]))
 
     # Check if clade_list was provided. If not, create a new one considering all genomes in the same clade
     if clade_list == None:
@@ -486,20 +668,37 @@ def run_one_vs_many(in_dir, rbm, pancat, anot, input_list, out_prefix, rec, clad
         color_list = get_default_color_list(clade_list, out_prefix)
 
     # Run analysis for one reference genome against many
-    print(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), "] Running script 03g_Recombinant_group_analysis.py...\n\n"]))
-    subprocess.call(f'03g_Recombinant_group_analysis.py -i {input_list} -o {out_prefix} -rbm {rbm} -pc {pancat} -ano {anot}  -rec {rec}', shell=True)
-
+    script_1 = '03g_Recombinant_group_analysis.py'
+    logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), f"] Running script {script_1}...\n\n"]))
+    res_group = subprocess.call(f'{script_1} -i {input_list} -o {out_prefix} -rbm {rbm} -pc {pancat} -ano {anot}  -rec {rec} >> {log_path} 2>&1', shell=True)
+    # Check exit status. 0 = the script run correctly
+    if res_group != 0:
+        logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), f"] ERROR: subprocess returned code {res_group}. {script_1} failed for {input_list}. DO NOT IGNORE!"]))                     
+ 
     # Plot recombinant RBM curve
-    print(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), "] Running script 03b_Pangenome_Calculate_Model_Plot.py...\n\n"]))
-    subprocess.call(f'03b_Pangenome_Calculate_Model_Plot.py -b {out_prefix}_rbm_matrix.tsv -o {out_one_vs_many_dir}/{out_prefix} -n {species}', shell=True)
+    script_2 = '03b_Pangenome_Calculate_Model_Plot.py'
+    logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), f"] Running script {script_2}...\n\n"]))
+    res_pang_model = subprocess.call(f'{script_2} -b {out_prefix}_rbm_matrix.tsv -o {out_one_vs_many_dir}/{out_prefix} -n {species} >> {log_path} 2>&1', shell=True)
+    # Check exit status. 0 = the script run correctly
+    if res_pang_model != 0:
+        logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), f"] ERROR: subprocess returned code {res_pang_model}. {script_2} failed for {out_prefix}_rbm_matrix.tsv. DO NOT IGNORE!"]))                     
 
     # Plot Recombinant gene clustermap
-    print(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), "] Running script 03c_Clustermap_fromBinary.py...\n\n"]))
-    subprocess.call(f'03c_Clustermap_fromBinary.py -b {out_prefix}_rbm_matrix.tsv -o {out_one_vs_many_dir}/{out_prefix}_rbmclustermap.pdf', shell=True)
+    script_3 = '03c_Clustermap_fromBinary.py'
+    logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), f"] Running script {script_3}...\n\n"]))
+    res_clustermap_03c = subprocess.call(f'{script_3} -b {out_prefix}_rbm_matrix.tsv -o {out_one_vs_many_dir}/{out_prefix}_rbmclustermap.pdf >> {log_path} 2>&1', shell=True)
+    # Check exit status. 0 = the script run correctly
+    if res_clustermap_03c != 0:
+        logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), f"] ERROR: subprocess returned code {res_clustermap_03c}. {script_3} failed for {out_prefix}_rbm_matrix.tsv. DO NOT IGNORE!"]))                     
+
 
     # Plot recombinant rarefaction plot
-    print(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), "] Running script 03i_RBM-Clade_Rarefaction.py...\n\n"]))
-    subprocess.call(f'03i_RBM-Clade_Rarefaction.py -r {out_prefix}_rbm_matrix.tsv -l {clade_list} -c {color_list} -o {out_prefix}_rbm_rarefaction', shell=True)
+    script_4 = '03i_RBM-Clade_Rarefaction.py'
+    logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), f"] Running script {script_4}...\n\n"]))
+    res_clade_rarefac = subprocess.call(f'{script_4} -r {out_prefix}_rbm_matrix.tsv -l {clade_list} -c {color_list} -o {out_prefix}_rbm_rarefaction >> {log_path} 2>&1', shell=True)
+    # Check exit status. 0 = the script run correctly
+    if res_clade_rarefac != 0:
+        logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), f"] ERROR: subprocess returned code {res_clade_rarefac}. {script_4} failed for {out_prefix}_rbm_matrix.tsv. DO NOT IGNORE!"]))                     
 
     # Move the output files to the directory if in_dir is provided, otherwise leave it in current folder
     if in_dir != None:
@@ -513,32 +712,55 @@ def run_one_vs_many(in_dir, rbm, pancat, anot, input_list, out_prefix, rec, clad
 def run_all_vs_all(in_dir, rbm, md, gene_list, out_prefix):
     # Create directory inside input folder if that variable is passed
     if in_dir != None:
-        out_all_vs_all_dir = f"{in_dir}/6_all-vs-all"
+        out_all_vs_all_dir = f"{in_dir}/7_all-vs-all"
         if os.path.isdir(out_all_vs_all_dir) == False:
             os.mkdir(out_all_vs_all_dir)
     else:
-        out_all_vs_all_dir = '.'
+        out_all_vs_all_dir = './'
+
+    # Create log file
+    log_path = f'{out_all_vs_all_dir}/7_all-vs-all_{out_prefix}.log'
+    logger = create_log(log_path)
+
+    # Print start message
+    logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), "] Starting all vs all workflow...\n\n"]))
 
     # Calculate fraction of recombinant genes and make a violin plot summarizing the results
-    print(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), "] Calculating rarefaction curves and building violin plots for the fraction of identical genes with script 04a_Allv_RBM_Violinplot.py...\n\n"]))
-    subprocess.call(f'04a_Allv_RBM_Violinplot_v2.py -rbm {rbm} -md {md} -gl {gene_list} -o {out_prefix}', shell=True)
+    script_1 = '04a_Allv_RBM_Violinplot_v2.py'
+    logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), f"] Calculating rarefaction curves and building violin plots for the fraction of identical genes with script {script_1}..\n\n"]))
+    res_RBM_violin = subprocess.call(f'{script_1} -rbm {rbm} -md {md} -gl {gene_list} -o {out_prefix} >> {log_path} 2>&1', shell=True)
+    # Check exit status. 0 = the script run correctly
+    if res_RBM_violin != 0:
+        logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), f"] ERROR: subprocess returned code {res_RBM_violin}. {script_1} failed for {rbm}. DO NOT IGNORE!"]))                     
 
     # Calculate PmRm ratio
-    print(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), "] Calculating recombination and mutation ratios with script 04b_pmrm_analyses_v2.py...\n\n"]))
-    subprocess.call(f'04b_pmrm_analyses_v2.py -md {md} -gl {gene_list} -rbm {rbm} -o {out_prefix}', shell=True)
+    script_2 = '04b_pmrm_analyses_v2.py'
+    logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), f"] Calculating recombination and mutation ratios with script {script_2}...\n\n"]))
+    res_pmrm = subprocess.call(f'{script_2} -md {md} -gl {gene_list} -rbm {rbm} -o {out_prefix} >> {log_path} 2>&1', shell=True)
+    # Check exit status. 0 = the script run correctly
+    if res_pmrm != 0:
+        logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), f"] ERROR: subprocess returned code {res_pmrm}. {script_2} failed for {rbm}. DO NOT IGNORE!"]))                     
 
     # Build PmRm vs ANI plot
-    print(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), "] Plotting recombination to mutation ratios (ρ/θ)...\n\n"]))
+    logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), "] Plotting recombination to mutation ratios (ρ/θ)...\n\n"]))
     table_pmrm = pd.read_table(f'{out_prefix}_pmpr_pairwise_data.tsv', header=0, sep='\t')
     max_pmrm = round(table_pmrm['ρ/θ'].max()) + 1
     y_step_size = max_pmrm / 5
     min_ani =  round(table_pmrm['ani'].min()) - 1 if table_pmrm['ani'].min() < 95 else 95
-    print(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), "] Running script 04c_pmrm-ani_pairwise_plot.py...\n\n"]))
-    subprocess.call(f'04c_pmrm-ani_pairwise_plot.py -i {out_prefix}_pmpr_pairwise_data.tsv -o {out_prefix} -ymax {max_pmrm} -yt {y_step_size} -xmin {min_ani}', shell=True)
+    script_3 = '04c_pmrm-ani_pairwise_plot.py'
+    logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), f"] Plotting ρ/θ vs ANI with script {script_3}...\n\n"]))
+    res_pmrm_ani = subprocess.call(f'{script_3} -i {out_prefix}_pmpr_pairwise_data.tsv -o {out_prefix} -ymax {max_pmrm} -yt {y_step_size} -xmin {min_ani} >> {log_path} 2>&1', shell=True)
+    # Check exit status. 0 = the script run correctly
+    if res_pmrm_ani != 0:
+        logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), f"] ERROR: subprocess returned code {res_pmrm_ani}. {script_3} failed for {out_prefix}_pmpr_pairwise_data.tsv. DO NOT IGNORE!"]))                     
 
     # Build PmRm vs F100 plot
-    print(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), "] Running script 04d_pmrm-f100_pairwise_plot.py...\n\n"]))
-    subprocess.call(f'04d_pmrm-f100_pairwise_plot.py -i {out_prefix}_pmpr_pairwise_data.tsv -o {out_prefix} -ymax {max_pmrm} -yt {y_step_size}', shell=True)
+    script_4 ='04d_pmrm-f100_pairwise_plot.py'
+    logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), f"] Plotting ρ/θ vs F100 with script {script_4}...\n\n"]))
+    res_pmrm_f100 = subprocess.call(f'{script_4} -i {out_prefix}_pmpr_pairwise_data.tsv -o {out_prefix} -ymax {max_pmrm} -yt {y_step_size} >> {log_path} 2>&1', shell=True)
+    # Check exit status. 0 = the script run correctly
+    if res_pmrm_f100 != 0:
+        logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), f"] ERROR: subprocess returned code {res_pmrm_f100}. {script_4} failed for {out_prefix}_pmpr_pairwise_data.tsv. DO NOT IGNORE!"]))                     
 
     if in_dir != None:
         list_out_files = glob.glob(f"./{out_prefix}*")
@@ -579,6 +801,117 @@ def options(action):
             type = float, 
             default = 99.8, 
             help = 'Minimum gene identity for recombining genes. Default: 99.8'
+            )
+
+    if action == "metadata":
+        parser.description = "Provides a series of plots to help the user build the metadata for the input genomes which will be needed in the next workflows"
+        parser.add_argument(
+            '-i', '--in_dir',
+            default = None, 
+            help = 'Please specify the folder with the results from the preprocessing steps', 
+            required = True
+            ) 
+        parser.add_argument(
+            '-o', '--output_file_prefix',
+            help='Please specify the output file prefix!',
+            #metavar='',
+            type=str,
+            required=True
+            )
+        parser.add_argument(
+            '-t', '--threads', 
+            type = int, 
+            default = 1, 
+            help = 'Number of threads. Default: 1'
+            )
+        parser.add_argument(
+            '-user', '--user_clusters',
+            help='Input ANI value list for cluster predction (eg 95, 97.5, 99.5)!',
+            metavar=':',
+            type=float,
+            nargs='+',
+            required=False,
+            default=None
+            )
+        parser.add_argument(
+            '-m', '--meta_data_file',
+            help='Please specify a meta data file!',
+            metavar=':',
+            type=str,
+            required=False
+            )
+        parser.add_argument(
+            '-c', '--meta_colors_file',
+            help='Please specify a meta colors file!',
+            metavar=':',
+            type=str,
+            required=False
+            )
+        parser.add_argument(
+            '-no', '--no_meta_data',
+            help='Set -no True to build basic seaborn clustermap of ANI distance!',
+            metavar=':',
+            type=str,
+            required=False,
+            default=None
+            )
+        parser.add_argument(
+            '-min', '--minimum_ANI',
+            help='Minimum ANI to include. Removes data below. (Default: 95.0)!',
+            metavar=':',
+            type=float,
+            required=False,
+            default=95.0
+            )
+        parser.add_argument(
+            '-max', '--maximum_ANI',
+            help='Maximum ANI to include. Removes data above. (Default: 100.0)!',
+            metavar=':',
+            type=float,
+            required=False,
+            default=100.0
+            )
+        parser.add_argument(
+            '-metric', '--cluster_metric',
+            help='Cluster metric (default: euclidean)',
+            metavar=':',
+            type=str,
+            required=False,
+            default='euclidean'
+            )
+        parser.add_argument(
+            '-method', '--cluster_method',
+            help='Cluster metric (default: average)',
+            metavar=':',
+            type=str,
+            required=False,
+            default='average'
+            )
+
+    if action == "gene-analysis":
+        parser.description = "F100 gene analyses, including clustering, annotation and plotting"
+        parser.add_argument(
+            '-i', '--in_dir',
+            default = None, 
+            help = 'Please specify the folder with the results from the preprocessing steps', 
+            required = True
+            )  
+        parser.add_argument(
+            '-tool', '--tool', 
+            default = 'eggnog', 
+            type = str, 
+            help = 'One of eggnog or cogclassifier. Default: eggnog'
+            )
+        parser.add_argument(
+            '-sp', '--sp_name', 
+            default = None, 
+            help = 'Species name'
+            )
+        parser.add_argument(
+            '-t', '--threads', 
+            type = int, 
+            default = 1, 
+            help = 'Number of threads. Default: 1'
             )
 
     if action == "models":
@@ -677,32 +1010,6 @@ def options(action):
             type=float,
             default=0.10,
             required=False
-            )
-
-    if action == "gene-analysis":
-        parser.description = "F100 gene analyses, including clustering, annotation and plotting"
-        parser.add_argument(
-            '-i', '--in_dir',
-            default = None, 
-            help = 'Please specify the folder with the results from the preprocessing steps', 
-            required = True
-            )  
-        parser.add_argument(
-            '-tool', '--tool', 
-            default = 'eggnog', 
-            type = str, 
-            help = 'One of eggnog or cogclassifier. Default: eggnog'
-            )
-        parser.add_argument(
-            '-sp', '--sp_name', 
-            default = None, 
-            help = 'Species name'
-            )
-        parser.add_argument(
-            '-t', '--threads', 
-            type = int, 
-            default = 1, 
-            help = 'Number of threads. Default: 1'
             )
 
     if action == "one-vs-one":
@@ -912,7 +1219,7 @@ def options(action):
 
 def main():
 
-    list_actions = ["help", "--help", "preprocessing", "models", "gene-analysis", "one-vs-one", "one-vs-many", "all-vs-all"]
+    list_actions = ["help", "--help", "preprocessing", "metadata", "gene-analysis", "models",  "one-vs-one", "one-vs-many", "all-vs-all"]
 
     if len(sys.argv) < 2:
         print("Please provide one action of:\n\t", "\n\t".join(list_actions[2:len(list_actions)]))
@@ -932,16 +1239,47 @@ def main():
     parser, args = options(action)
 
     if action == "preprocessing":
+        # Define variables
         in_dir = args.in_dir
         out_dir = args.out_dir
         threads = args.threads
         rec_threshold = args.rec_threshold
 
-        print(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), "] Starting the preprocessing step...\n\n"]))
+        # Run calculation
         run_preprocessing(in_dir, out_dir, threads, rec_threshold)
 
+    if action == "metadata":
+        # Define variables
+        in_dir = args.in_dir
+        threads = args.threads
+        out_pre = args.output_file_prefix
+        user_cl = args.user_clusters
+        user_md = args.meta_data_file
+        user_md_color = args.meta_colors_file
+        no_md = args.no_meta_data
+        ani_min = args.minimum_ANI
+        ani_max = args.maximum_ANI
+        metric = args.cluster_metric
+        method = args.cluster_method
+
+        # Run metadata calculation
+        run_metadata(in_dir, threads, out_pre, user_cl, user_md, user_md_color, no_md, ani_min, ani_max, metric, method)
+
+    if action == "gene-analysis":
+        # Define variables
+        in_dir = args.in_dir
+        tool = args.tool
+        threads = args.threads
+        if args.sp_name is not None:
+            species = args.sp_name
+        else:
+            species = args.in_dir
+
+        # Run gene analysis workflow
+        run_genes(in_dir, tool, threads, species)
 
     if action == "models":
+        # Define variables
         in_folder = args.in_dir
         in_file = glob.glob(f"{in_folder}/1_Preprocessing/RBM_results/*_F100.tsv")[0]
         out_file = args.output_file_prefix
@@ -956,24 +1294,11 @@ def main():
         point_size = args.point_size
         point_alpha = args.point_alpha
 
-        print(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), "] Running 02d_f100_scatter_pyGAM.py script to build plots...\n\n"]))
-
+        # Run models workflow
         run_models(in_folder, in_file, out_file, plot_title, xaxis_min, xaxis_max, yaxis_min, yaxis_max, model_file, prebuilt_folder, xaxis_step_size, point_size, point_alpha)
 
-    if action == "gene-analysis":
-        in_dir = args.in_dir
-        tool = args.tool
-        threads = args.threads
-        if args.sp_name is not None:
-            species = args.sp_name
-        else:
-            species = args.in_dir
-
-        print(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), "] Starting gene analysis...\n\n"]))
-
-        run_genes(in_dir, tool, threads, species)
-
     if action == "one-vs-one":
+        # Define variables
         if args.in_dir != None:
             in_dir = args.in_dir
             # Find RBM file from preprocessing step (1)
@@ -1028,10 +1353,11 @@ def main():
         rec = args.recombination_cutoff
         subdivisions = args.lineplot_subdivisions
 
-        print(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), "] Starting one vs one analysis with script 03f_Recombinant_pair_analysis.py...\n\n"]))
+        # Run one vs one workflow
         run_one_vs_one(in_dir, rbm, pancat, anot, cds_gA, cds_gB, gA, gB, out_prefix, rec, subdivisions)
 
     if action == "one-vs-many":
+        # Define variables
         if args.in_dir != None:
             in_dir = args.in_dir
             # Find RBM file from preprocessing step (1)
@@ -1085,10 +1411,11 @@ def main():
         color_list = args.color_clade_list
         species = args.species
 
-        print(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), "] Starting one vs many analysis with script 03g_Recombinant_group_analysis.py...\n\n"]))
+        # Run one vs many workflow
         run_one_vs_many(in_dir, rbm, pancat, anot, input_list, out_prefix, rec, clade_list, color_list, species)
 
     if action == 'all-vs-all':
+        # Define variables
         if args.in_dir != None:
             in_dir = args.in_dir
             # Find RBM file from preprocessing step (1)
@@ -1132,8 +1459,9 @@ def main():
         out_prefix = args.output_file_prefix
         md = args.metadata
 
-        print(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), "] Starting all vs all analyses...\n\n"]))
+        # Run all vs all workflow
         run_all_vs_all(in_dir, rbm, md, gene_list, out_prefix)
+
 
 if __name__ == "__main__":
     main()
