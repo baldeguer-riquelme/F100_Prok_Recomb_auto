@@ -1,7 +1,7 @@
 ### F100_Prok_Recomb_auto
 This repository contains the information to run the F100 pipeline to estimate recombination between genomes developed by Roth Conrad (https://github.com/rotheconrad/F100_Prok_Recombination/) calling a single script.
 
-The F100_main.py compile the scripts in the original F100_Prok_Recombination repository into 6 different workflows to make it easier to use. It might be specially useful for those trying the pipeline for the first time or with little experience. However, the users looking for more flexibility might want to run the pipeline script by script, as originally developed.
+The F100_main.py compile the scripts in the original F100_Prok_Recombination repository into 7 different workflows to make it easier to use. It might be specially useful for those trying the pipeline for the first time or with little experience. However, the users looking for more flexibility might want to run the pipeline script by script, as originally developed.
 
 
 ## Installation
@@ -56,22 +56,24 @@ git clone https://github.com/baldeguer-riquelme/F100_Prok_Recomb_auto/
 
 ## Brief description
 
-The pipeline consist of 6 workflows (or actions):
+The pipeline consist of 7 workflows (or actions):
 
 1. preprocessing
-              
-2. models
+
+2. metadata
 
 3. gene-analyses
               
-4. one-vs-one
+4. models
               
-5. one-vs-many
+5. one-vs-one
               
-6. all-vs-all
+6. one-vs-many
+              
+7. all-vs-all
 
 
-The preprocessing and gene-analyses are key since they produce outputs needed for the other workflows to run.
+The first 3 workflows (preprocessing, metadata and gene-analyses) are key since they generate the outputs needed for the other workflows to run.
 
 The list of scripts and output files produced by each workflow are detailed below.
 
@@ -79,13 +81,16 @@ The list of scripts and output files produced by each workflow are detailed belo
 |---------------|-------------------------------------------------|------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------|
 | preprocessing | 01a_rename_fasta_v2.py                          | Renamed files                                  | Replace '_' by '.'                                                                                                                       |
 |               | Prodigal                                        | Predicted genes and proteins                   | Predicted genes and proteins                                                                                                             |
-|               | fastANI                                         | fastANI_allV.ani                               | All vs all ANI values                                                                                                                    |
-|               | 01b_fastANI_scatter_pyGAM.py                    | fastANI_allV_sharedfrac_ANI.pdf                | Dot plot of ANI vs Percentage of shared genome. Each dot is a pair                                                                       |
-|               | 01c_fastANI_clustermap.py                       | fastANI_allV_heatmap.pdf                       | Heatmap showing the 100 - ANI values                                                                                                     |
 |               | 02b_get_RBMs_pipeline_auto.py                   | RBMs_allV.rbm                                  | Table with all vs all RBM data                                                                                                           |
-|               | 02c_get_F100.py                                 | {out_prefix}_F100.tsv                          | Table with the fraction of identical genes (defined by the identity threshold)                                                              |
-| models        | 02d_f100_scatter_pyGAM.py                       | {out_prefix}_{model}_GAMplot.pdf               | F100 vs ANI plot for the input data and the pre-built model                                                                              |
-|               |                                                 | {out_prefix}_{model}_sig-pairs.tsv             | Pairs outside the 95% confidence interval. Above model: "Recombining" ; Below model: "Non-recombining"                                   |
+|               | 02c_get_F100.py                                 | {out_prefix}_F100.tsv                          | Table with the fraction of shared genes (defined by the identity threshold)                                                              |
+| metadata      | fastANI                                         | fastANI_allV.ani                               | All vs all ANI values                                                                                                                    |
+|               | 01b_fastANI_scatter_pyGAM.py                    | fastANI_allV_sharedfrac_ANI.pdf                | Dot plot of ANI vs Percentage of shared genome. Each dot is a pair                                                                       |
+|               | 01c_fastANI_clustermap_v2.py                    | {out_prefix}_clustermap.pdf                    | Heatmap showing the 100 - ANI values                                                                                                     |
+|               |                                                 | {out_prefix}_Legend_clade-X.pdf                | Color legend for each clade in {out_prefix}_clustermap.pdf                                                                               |
+|               |                                                 | {out_prefix}_Local_minimums.pdf                | Plot showing the ANI distribution and the minimum and maximum values used to identify clusters                                           |
+|               |                                                 | {out_prefix}_predicted_clusters.tsv            | Tab-delimited table indicating the clades each genome belongs to                                                                         |
+|               |                                                 | {out_prefix}_meta_colors.tsv                   | Two column tab-delimtied table with the hex color code assigned to each clade                                                            |
+|               |                                                 | {out_prefix}_distmat.tsv                       | ANI matrix                                                                                                                               |
 | gene-analysis | MMseqs2                                         | all_genes_CDS_mmseqs_clusters.tsv              | Mmseqs2 cluster database                                                                                                                 |
 |               |                                                 | my_rep_seqs.fnn                                | Representative genes sequences                                                                                                           |
 |               | 03a_MMSeqsTSV-to-BinaryMatrix.py                | pangenome_matrix.tsv                           | Binary matrix file. Columns are genome, rows are genes. 1 = present ; 0=absent                                                           |
@@ -96,26 +101,28 @@ The list of scripts and output files produced by each workflow are detailed belo
 |               | emapper.py                                      | {out_prefix}.emapper.annotations               | Annotation of representative proteins based on EggNog                                                                                    |
 |               | COGclassifier                                   | classifier_result.tsv                          | Annotation of representative proteins based on COGclassifier                                                                             |
 |               | 03e_Get_Genes_Clusters_PanCat.py                | pancat_file.tsv                                | Table with information about the cluster, pangenome category, n/N and Distance for each gene                                             |
-| one-vs-one    | 03f_Recombinant_pair_analysis.py                | {out_prefix}_A_Adjecent_Rec_Length.pdf         | Histogram of the number of consecutive identical and non-identical genes in genome A                                                 |
-|               |                                                 | {out_prefix}_A_distance.pdf                    | Distance between identical genes in genome A                                                                                           |
+| models        | 02d_f100_scatter_pyGAM.py                       | {out_prefix}_{model}_GAMplot.pdf               | F100 vs ANI plot for the input data and the pre-built model                                                                              |
+|               |                                                 | {out_prefix}_{model}_sig-pairs.tsv             | Pairs outside the 95% confidence interval. Above model: "Recombining" ; Below model: "Non-recombining"                                   |
+| one-vs-one    | 03f_Recombinant_pair_analysis.py                | {out_prefix}_A_Adjecent_Rec_Length.pdf         | Histogram of the number of consecutive recombinant and non-recombinant genes in genome A                                                 |
+|               |                                                 | {out_prefix}_A_distance.pdf                    | Distance between recombinant genes in genome A                                                                                           |
 |               |                                                 | {out_prefix}_A_gene_table.tsv                  | Data (Identity, annotation, etc) for each gene of genome A                                                                               |
 |               |                                                 | {out_prefix}_A_posline_out.pdf                 | Sequence identity vs position in the genome A                                                                                            |
 |               |                                                 | {out_prefix}_A_Rec_rate_windows.pdf            | Sliding window recombination to mutation rate for genome A                                                                               |
 |               |                                                 | {out_prefix}_A_rec_rate_table.tsv              | Data used for the sliding window recombination to mutation rate above                                                                    |
-|               |                                                 | {out_prefix}_B_Adjecent_Rec_Length.pdf         | Histogram of the number of consecutive identical and non-identical genes in genome B                                                 |
-|               |                                                 | {out_prefix}_B_distance.pdf                    | Distance between identical genes in genome B                                                                                           |
-|               |                                                 | {out_prefix}_B_gene_table.tsv                  | Data (Identity, annotation, etc) for each gene of genome B                                                                               |
-|               |                                                 | {out_prefix}_B_posline_out.pdf                 | Sequence identity vs position in the genome B                                                                                            |
-|               |                                                 | {out_prefix}_B_Rec_rate_windows.pdf            | Sliding window recombination to mutation rate for genome B                                                                               |
+|               |                                                 | {out_prefix}_B_Adjecent_Rec_Length.pdf         | Histogram of the number of consecutive recombinant and non-recombinant genes in genome A                                                 |
+|               |                                                 | {out_prefix}_B_distance.pdf                    | Distance between recombinant genes in genome A                                                                                           |
+|               |                                                 | {out_prefix}_B_gene_table.tsv                  | Data (Identity, annotation, etc) for each gene of genome A                                                                               |
+|               |                                                 | {out_prefix}_B_posline_out.pdf                 | Sequence identity vs position in the genome A                                                                                            |
+|               |                                                 | {out_prefix}_B_Rec_rate_windows.pdf            | Sliding window recombination to mutation rate for genome A                                                                               |
 |               |                                                 | {out_prefix}_B_rec_rate_table.tsv              | Data used for the sliding window recombination to mutation rate above                                                                    |
-|               |                                                 | {out_prefix}_annotations_bar.pdf               | Identical vs non-identical function annotation                                                                                        |
-|               |                                                 | {out_prefix}_genomes.pdf                       | Distribution along the genome of conserved, identical and non-identical genes                                                        |
-| one-vs-many   | 03g_Recombinant_group_analysis.py               | {out_prefix}_Adjecent_Rec_Length.pdf           | Histogram of the number of consecutive identical and non-identical genes in reference genome                                         |
+|               |                                                 | {out_prefix}_annotations_bar.pdf               | Recombinant vs non-recombinat function annotation                                                                                        |
+|               |                                                 | {out_prefix}_genomes.pdf                       | Distribution along the genome of conserved, recombinant and non-recombinant genes                                                        |
+| one-vs-many   | 03g_Recombinant_group_analysis.py               | {out_prefix}_Adjecent_Rec_Length.pdf           | Histogram of the number of consecutive recombinant and non-recombinant genes in reference genome                                         |
 |               |                                                 | {out_prefix}_Adjecent_Rec_Length.tsv           | Data used for the histogram above                                                                                                        |
-|               |                                                 | {out_prefix}_annotations_bar.pdf               | Identical vs non-identical function annotation                                                                                        |
-|               |                                                 | {out_prefix}_gene_distribution.pdf             | Distance between identical genes in the reference genome                                                                               |
+|               |                                                 | {out_prefix}_annotations_bar.pdf               | Recombinant vs non-recombinat function annotation                                                                                        |
+|               |                                                 | {out_prefix}_gene_distribution.pdf             | Distance between recombinant genes in the reference genome                                                                               |
 |               |                                                 | {out_prefix}_group_data.tsv                    | Data (Identity, annotation, etc) for each hit between query and reference genomes                                                        |
-|               |                                                 | {out_prefix}_posbar.pdf                        | Identical vs non-identical function annotation                                                                                        |
+|               |                                                 | {out_prefix}_posbar.pdf                        | Recombinant vs non-recombinat function annotation                                                                                        |
 |               |                                                 | {out_prefix}_posline.pdf                       | Sequence identity vs position in the reference genome                                                                                    |
 |               |                                                 | {out_prefix}_rbm_matrix.tsv                    | Binary matrix file. Columns are genome, rows are genes. 1 = present ; 0=absent                                                           |
 |               | 03b_Pangenome_Calculate_Model_Plot.py           | {out_prefix}_pangenome_curves.pdf              | Rarefaction curves with pangenome, core and specific genes                                                                               |
@@ -137,7 +144,6 @@ The list of scripts and output files produced by each workflow are detailed belo
 |               | 04b_pmrm_analyses_v2.py                         | {out_prefix}_pmpr_pairwise_data.tsv            | Table with the purged mutation (Pm) to recent mutation (Rm) ratio for each pairwise comparison                                           |
 |               | 04c_pmrm-ani_pairwise_plot.py                   | {out_prefix}_pmrm_ani.pdf                      | Dot plot of ANI vs Pm/Rm ratio                                                                                                           |
 |               | 04d_pmrm-f100_pairwise_plot.py                  | {out_prefix}_pmrm_f100.pdf                     | Dot plot of F100 vs Pm/Rm ratio                                                                                                          |
-
 
 
 ## Run the pipeline
