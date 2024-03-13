@@ -603,7 +603,7 @@ def run_one_vs_one(in_dir, rbm, pancat, anot, cds_gA, cds_gB, gA, gB, out_prefix
     logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), f"] Starting one vs one workflow with script {script}...\n\n"]))
 
     # Run analysis for the pair of genomes selected
-    logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), "] Running script {script}...\n\n"]))
+    logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), f"] Running script {script}...\n\n"]))
     res_pair_analysis = subprocess.call(f'{script} -rbm {rbm} -pc {pancat} -ano {anot} -cA {cds_gA} -cB {cds_gB} -gA {gA} -gB {gB} -o {out_prefix} -rec {rec} -subs {subdivisions} >> {log_path} 2>&1', shell=True)
     # Check exit status. 0 = the script run correctly
     if res_pair_analysis != 0:
@@ -674,23 +674,6 @@ def run_one_vs_many(in_dir, rbm, pancat, anot, input_list, out_prefix, rec, clad
     if res_group != 0:
         logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), f"] ERROR: subprocess returned code {res_group}. {script_1} failed for {input_list}. DO NOT IGNORE!"]))                     
  
-    # Plot recombinant RBM curve
-    script_2 = '03b_Pangenome_Calculate_Model_Plot.py'
-    logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), f"] Running script {script_2}...\n\n"]))
-    res_pang_model = subprocess.call(f'{script_2} -b {out_prefix}_rbm_matrix.tsv -o {out_one_vs_many_dir}/{out_prefix} -n {species} >> {log_path} 2>&1', shell=True)
-    # Check exit status. 0 = the script run correctly
-    if res_pang_model != 0:
-        logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), f"] ERROR: subprocess returned code {res_pang_model}. {script_2} failed for {out_prefix}_rbm_matrix.tsv. DO NOT IGNORE!"]))                     
-
-    # Plot Recombinant gene clustermap
-    script_3 = '03c_Clustermap_fromBinary.py'
-    logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), f"] Running script {script_3}...\n\n"]))
-    res_clustermap_03c = subprocess.call(f'{script_3} -b {out_prefix}_rbm_matrix.tsv -o {out_one_vs_many_dir}/{out_prefix}_rbmclustermap.pdf >> {log_path} 2>&1', shell=True)
-    # Check exit status. 0 = the script run correctly
-    if res_clustermap_03c != 0:
-        logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), f"] ERROR: subprocess returned code {res_clustermap_03c}. {script_3} failed for {out_prefix}_rbm_matrix.tsv. DO NOT IGNORE!"]))                     
-
-
     # Plot recombinant rarefaction plot
     script_4 = '03i_RBM-Clade_Rarefaction.py'
     logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), f"] Running script {script_4}...\n\n"]))
