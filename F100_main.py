@@ -510,7 +510,7 @@ def run_genes(in_dir, tool, threads, species):
     logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), "] Assigning pangenome class to genes...\n\n".format(tool)]))
     logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), f"] Running script {script}...\n\n"]))
     pan_matrix = f'{out_genes_dir}/pangenome_matrix.tsv'
-    res_genes_pancat = subprocess.call(f'{script} -b {pan_matrix} -m {out_genes_dir}/all_genes_CDS_mmseqs_clusters.tsv -r {in_dir}1_Preprocessing/RBM_results/RBMs_allV.rbm -o {out_genes_dir}/pancat_file.tsv >> {log_path} 2>&1', shell=True)
+    res_genes_pancat = subprocess.call(f'{script} -b {pan_matrix} -m {out_genes_dir}/all_genes_CDS_mmseqs_clusters.tsv -r {in_dir}/1_Preprocessing/RBM_results/RBMs_allV.rbm -o {out_genes_dir}/pancat_file.tsv >> {log_path} 2>&1', shell=True)
     # Check exit status. 0 = the script run correctly
     if res_genes_pancat != 0:
         logger.info(''.join(["\n\n[", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), f"] ERROR: subprocess returned code {res_genes_pancat}. {script} failed. DO NOT IGNORE!"]))
