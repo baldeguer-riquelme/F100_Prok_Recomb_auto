@@ -618,10 +618,10 @@ def run_one_vs_one(in_dir, rbm, pancat, anot, cds_gA, cds_gB, gA, gB, out_prefix
                 os.remove(outfile)
 
 
-def get_default_clade_list(rbm, out_prefix):
-    table = pd.read_table(rbm, usecols=[0,1], header=None)
-    merged = pd.concat([table[0], table[1]]).drop_duplicates()
-    genomes = merged.str.split('_', expand=True)[0].drop_duplicates()
+def get_default_clade_list(input_list, out_prefix):
+    table = pd.read_table(input_list, usecols=[0], header=None)
+    splitted = table[0].str.split('/', expand=True)
+    genomes = splitted[len(splitted.columns)-1].str.replace('_','.')
     df = pd.DataFrame(genomes).assign(clade = 'Clade')
     outfile = f'{out_prefix}_clade_list.txt'
     df.to_csv(outfile, sep = ',', header = False, index = False)
@@ -660,7 +660,7 @@ def run_one_vs_many(in_dir, rbm, pancat, anot, input_list, out_prefix, rec, clad
 
     # Check if clade_list was provided. If not, create a new one considering all genomes in the same clade
     if clade_list == None:
-        clade_list = get_default_clade_list(rbm, out_prefix)
+        clade_list = get_default_clade_list(input_list, out_prefix)
 
     # Check if color_clade_list was provided. If not create a new one with random colors
     if color_list == None:
