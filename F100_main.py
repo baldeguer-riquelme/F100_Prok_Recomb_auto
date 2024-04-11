@@ -1418,7 +1418,7 @@ def main():
                         with open(file, 'r') as f:
                             for line in f:
                                 if line.startswith('>'):
-                                    ids.append(line.rstrip('\n'))
+                                    ids.append(line)
                     gene_list = 'gene_list.txt'
                     out_gl = open(gene_list,'w')
                     out_gl.writelines(ids)
